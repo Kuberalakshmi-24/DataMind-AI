@@ -50,7 +50,7 @@ function App() {
     setLoading(true); setAnswer(""); setImage(null);
 
     try {
-      const res = await axios.post("http://127.0.0.1:8000/analyze", formData);
+      const res = await axios.post("https://datamind-backend-sm6k.onrender.com/analyze", formData);
       setAnswer(res.data.answer);
       if (res.data.image) setImage(res.data.image);
     } catch (err) {

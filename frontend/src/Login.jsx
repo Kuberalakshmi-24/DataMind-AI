@@ -19,7 +19,7 @@ function Login({ onLogin }) {
     const endpoint = isRegistering ? "register" : "login";
     
     try {
-      const res = await axios.post(`http://127.0.0.1:8000/${endpoint}`, {
+      const res = await axios.post(`https://datamind-backend-sm6k.onrender.com/${endpoint}`, {
         username: username,
         password: password
       });
