@@ -127,6 +127,7 @@ function App() {
       };
       await axios.post(`${API_URL}/save_history`, newEntry);
       setChatHistory(prev => [newEntry, ...prev]);
+      setQuery("");
 
     } catch (err) {
       setAnswer("⚠️ Connection Error: Unable to reach AI.");
