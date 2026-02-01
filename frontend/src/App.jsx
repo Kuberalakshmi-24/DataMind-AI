@@ -5,53 +5,74 @@ import Login from './Login';
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [currentUser, setCurrentUser] = useState(""); // Stores who is logged in
+  const [currentUser, setCurrentUser] = useState(""); 
+  
+  // 👇 Two Types of History now!
   const [file, setFile] = useState(null);
-  const [history, setHistory] = useState([]);
+  const [recentFiles, setRecentFiles] = useState([]); // 📂 Stores Uploaded Files (Session)
+  const [chatHistory, setChatHistory] = useState([]); // 💬 Stores Q&A (Permanent)
+  
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState("");
   const [image, setImage] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // 👇 RENDER LIVE LINK use pannunga! (Local la test panna localhost use pannalam)
-  const API_URL = "https://datamind-backend.onrender.com"; 
+  // 👇 RENDER URL (Change if needed)
+  const API_URL = "https://datamind-backend-sm6k.onrender.com"; 
 
-  // 1. Handle Login & Fetch History
+  // 1. Handle Login
   const handleLoginSuccess = async (status, username) => {
     setIsLoggedIn(status);
     setCurrentUser(username);
 
-    // Fetch Old History from Backend
+    // Fetch Old Chat History
     try {
       const res = await axios.post(`${API_URL}/get_history`, { 
         username: username,
-        password: "" // Not needed for history, just schema match
+        password: "" 
       });
       if (res.data.history) {
-        setHistory(res.data.history);
+        setChatHistory(res.data.history);
       }
     } catch (err) {
       console.error("Failed to load history", err);
     }
   };
 
+  // 2. Handle File Upload (OLD STYLE IS BACK! 📂)
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       setFile(selectedFile);
+      
+      // Add to Recent Files List (Sidebar) immediately!
+      const isExist = recentFiles.find(f => f.name === selectedFile.name);
+      if (!isExist) {
+        setRecentFiles(prev => [selectedFile, ...prev]);
+      }
     }
   };
 
-  const selectFromHistory = (historyItem) => {
-    setQuery(historyItem.query);
-    setAnswer(historyItem.answer);
+  // 3. Select File from Sidebar (Switching Files)
+  const switchFile = (selectedFile) => {
+    setFile(selectedFile);
+    setAnswer(""); // Clear old answer when switching file
     setImage(null);
+    setQuery("");
+  };
+
+  // 4. Select Old Chat (Viewing Past Insights)
+  const selectChatHistory = (item) => {
+    setQuery(item.query);
+    setAnswer(item.answer);
+    setImage(null); // Images aren't stored in simple history
   };
 
   const handleLogout = () => {
     setIsLoggedIn(false);
     setCurrentUser("");
-    setFile(null); setQuery(""); setAnswer(""); setImage(null); setHistory([]);
+    setFile(null); setQuery(""); setAnswer(""); setImage(null); 
+    setChatHistory([]); setRecentFiles([]);
   };
 
   const handleClear = () => {
@@ -68,12 +89,11 @@ function App() {
     setLoading(true); setAnswer(""); setImage(null);
 
     try {
-      // 1. Get Answer from AI
       const res = await axios.post(`${API_URL}/analyze`, formData);
       setAnswer(res.data.answer);
       if (res.data.image) setImage(res.data.image);
 
-      // 2. Save to History (Backend)
+      // Save to Chat History
       const newEntry = {
         username: currentUser,
         filename: file.name,
@@ -81,11 +101,8 @@ function App() {
         answer: res.data.answer,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
-
       await axios.post(`${API_URL}/save_history`, newEntry);
-
-      // 3. Update Local State
-      setHistory(prev => [newEntry, ...prev]);
+      setChatHistory(prev => [newEntry, ...prev]);
 
     } catch (err) {
       setAnswer("⚠️ Connection Error: Unable to reach the AI backend.");
@@ -93,7 +110,6 @@ function App() {
     setLoading(false);
   };
 
-  // Pass handleLoginSuccess instead of just setIsLoggedIn
   if (!isLoggedIn) return <Login onLogin={handleLoginSuccess} />;
 
   return (
@@ -112,26 +128,43 @@ function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+          
+          {/* 📂 SECTION 1: UPLOAD & RECENT FILES */}
           <div>
-            <label className="text-xs font-bold text-indigo-300 uppercase tracking-wide mb-3 block">New Upload</label>
-            <div className={`relative group p-4 rounded-xl border-2 border-dashed transition-all cursor-pointer ${file ? "border-green-400 bg-green-500/10" : "border-indigo-400/30 hover:border-indigo-400 hover:bg-white/5"}`}>
+            <label className="text-xs font-bold text-indigo-300 uppercase tracking-wide mb-3 block">Upload & Files</label>
+            
+            {/* Upload Box */}
+            <div className={`relative group p-4 rounded-xl border-2 border-dashed transition-all cursor-pointer mb-4 ${file ? "border-green-400 bg-green-500/10" : "border-indigo-400/30 hover:border-indigo-400 hover:bg-white/5"}`}>
               <input type="file" accept=".csv" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
               <div className="text-center">
                 <span className="text-2xl block mb-1">{file ? "✅" : "📂"}</span>
                 <span className="text-xs font-bold text-indigo-100 group-hover:text-white transition">{file ? file.name : "Click to Upload CSV"}</span>
               </div>
             </div>
+
+            {/* List of Recent Files */}
+            {recentFiles.length > 0 && (
+               <div className="space-y-2">
+                 {recentFiles.map((f, index) => (
+                   <button key={index} onClick={() => switchFile(f)} className={`w-full text-left p-3 rounded-lg flex items-center gap-3 transition-all ${file && file.name === f.name ? "bg-indigo-600 border border-indigo-400" : "bg-white/5 hover:bg-white/10"}`}>
+                     <span className="text-lg">📄</span>
+                     <p className="text-sm font-bold truncate text-white">{f.name}</p>
+                   </button>
+                 ))}
+               </div>
+            )}
           </div>
 
-          {history.length > 0 && (
+          {/* 💬 SECTION 2: CHAT HISTORY */}
+          {chatHistory.length > 0 && (
             <div>
               <label className="text-xs font-bold text-indigo-300 uppercase tracking-wide mb-3 block flex justify-between items-center">
-                <span>History</span>
-                <span className="bg-indigo-700 text-[10px] px-2 py-0.5 rounded-full text-white">{history.length}</span>
+                <span>Saved Insights</span>
+                <span className="bg-indigo-700 text-[10px] px-2 py-0.5 rounded-full text-white">{chatHistory.length}</span>
               </label>
               <div className="space-y-2">
-                {history.map((item, index) => (
-                  <button key={index} onClick={() => selectFromHistory(item)} className="w-full text-left p-3 rounded-lg flex items-center gap-3 transition-all group bg-white/5 hover:bg-white/10 border border-transparent hover:border-indigo-400/30">
+                {chatHistory.map((item, index) => (
+                  <button key={index} onClick={() => selectChatHistory(item)} className="w-full text-left p-3 rounded-lg flex items-center gap-3 transition-all group bg-white/5 hover:bg-white/10 border border-transparent hover:border-indigo-400/30">
                     <span className="text-lg">💬</span>
                     <div className="overflow-hidden">
                       <p className="text-sm font-bold truncate text-indigo-100 group-hover:text-white">{item.query}</p>
@@ -157,6 +190,7 @@ function App() {
 
       {/* ☀️ RIGHT MAIN CONTENT */}
       <div className="flex-1 flex flex-col h-screen relative bg-white">
+        {/* Same as before... Header & Chat Area */}
         <header className="h-20 border-b border-slate-100 flex justify-between items-center px-8 bg-white/80 backdrop-blur-md sticky top-0 z-10">
           <div>
             <h2 className="text-xl font-extrabold text-slate-800 tracking-tight">Analytics Workspace</h2>
@@ -179,21 +213,17 @@ function App() {
               <div className="flex justify-end">
                  <div className="bg-slate-100 text-slate-700 px-6 py-4 rounded-2xl rounded-tr-none max-w-2xl text-lg font-medium shadow-sm">{query}</div>
               </div>
-
               <div className="flex gap-4">
                 <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white text-lg shadow-md shrink-0">✨</div>
                 <div className="flex-1 space-y-4">
-                  
                   {image && (
                     <div className="p-2 bg-white rounded-2xl shadow-lg border border-slate-100 inline-block mb-4">
                       <img src={`data:image/png;base64,${image}`} alt="Data Visualization" className="rounded-xl max-h-[450px] w-auto" />
                     </div>
                   )}
-
                   <div className="bg-white p-8 rounded-2xl rounded-tl-none shadow-xl border border-slate-100 text-slate-700 prose prose-indigo max-w-none leading-relaxed">
                     <ReactMarkdown>{answer}</ReactMarkdown>
                   </div>
-
                 </div>
               </div>
             </div>
