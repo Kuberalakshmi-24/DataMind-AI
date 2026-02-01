@@ -9,3 +9,4 @@ langchain-experimental
 python-multipart
 uvicorn[standard]
 python-dotenv
+tabulate
