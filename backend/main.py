@@ -12,8 +12,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
-from dotenv import load_dotenv # <--- New Import
-import os
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -28,11 +27,20 @@ app.add_middleware(
 
 # --- DATABASE SETUP ---
 USERS_FILE = "users.json"
+HISTORY_FILE = "history.json"  # <--- New History File 📂
 
 class UserData(BaseModel):
     username: str
     password: str
 
+class HistoryData(BaseModel):
+    username: str
+    filename: str
+    query: str
+    answer: str
+    time: str
+
+# --- USERS LOGIC ---
 def load_users():
     if not os.path.exists(USERS_FILE): return {}
     try:
@@ -41,6 +49,16 @@ def load_users():
 
 def save_users(users):
     with open(USERS_FILE, "w") as f: json.dump(users, f)
+
+# --- HISTORY LOGIC (NEW) ---
+def load_history():
+    if not os.path.exists(HISTORY_FILE): return {}
+    try:
+        with open(HISTORY_FILE, "r") as f: return json.load(f)
+    except: return {}
+
+def save_history_file(history):
+    with open(HISTORY_FILE, "w") as f: json.dump(history, f)
 
 @app.post("/register")
 async def register(user: UserData):
@@ -58,9 +76,37 @@ async def login(user: UserData):
         return {"status": "success", "message": "Login Success!"}
     return {"status": "error", "message": "Invalid Username or Password! ❌"}
 
+# --- NEW ENDPOINTS FOR HISTORY ---
+@app.post("/save_history")
+async def save_history_endpoint(data: HistoryData):
+    history = load_history()
+    if data.username not in history:
+        history[data.username] = []
+    
+    # Add new entry to the beginning
+    history[data.username].insert(0, {
+        "filename": data.filename,
+        "query": data.query,
+        "answer": data.answer,
+        "time": data.time
+    })
+    
+    save_history_file(history)
+    return {"status": "success"}
+
+@app.post("/get_history")
+async def get_history_endpoint(user: UserData):
+    # We reuse UserData just to get the username
+    history = load_history()
+    user_history = history.get(user.username, [])
+    return {"history": user_history}
+
 # --- AI SETUP ---
+os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
+
 llm = ChatGroq(
     model_name="llama-3.3-70b-versatile",
+    api_key=os.environ["GROQ_API_KEY"],
     temperature=0
 )
 
@@ -73,7 +119,6 @@ async def analyze_data(file: UploadFile = File(...), query: str = Form(...)):
         if os.path.exists("plot.png"):
             os.remove("plot.png")
 
-        # --- 👇 IMPORTANT CHANGE: Ask for Explanation 👇 ---
         prefix_instruction = """
         You are an expert Data Analyst.
         If the user wants a visualization:

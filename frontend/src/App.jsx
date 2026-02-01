@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import Login from './Login';
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState(""); // Stores who is logged in
   const [file, setFile] = useState(null);
   const [history, setHistory] = useState([]);
   const [query, setQuery] = useState("");
@@ -12,29 +13,45 @@ function App() {
   const [image, setImage] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // 👇 API URL Helper (Use Render URL if deploying, else localhost)
+  const API_URL = "http://127.0.0.1:8000"; // Or your Render URL
+
+  // 1. Handle Login & Fetch History
+  const handleLoginSuccess = async (status, username) => {
+    setIsLoggedIn(status);
+    setCurrentUser(username);
+
+    // Fetch Old History
+    try {
+      const res = await axios.post(`${API_URL}/get_history`, { 
+        username: username,
+        password: "" // Not needed for history, just satisfying UserData schema
+      });
+      if (res.data.history) {
+        setHistory(res.data.history);
+      }
+    } catch (err) {
+      console.error("Failed to load history", err);
+    }
+  };
+
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       setFile(selectedFile);
-      const exists = history.find((item) => item.name === selectedFile.name);
-      if (!exists) {
-        setHistory(prev => [{
-          name: selectedFile.name, 
-          fileObj: selectedFile, 
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }, ...prev]);
-      }
     }
   };
 
   const selectFromHistory = (historyItem) => {
-    setFile(historyItem.fileObj);
-    setAnswer("");
-    setImage(null);
+    // When clicking history, we just show the old Q&A
+    setQuery(historyItem.query);
+    setAnswer(historyItem.answer);
+    setImage(null); // Images aren't saved in simple history for now
   };
 
   const handleLogout = () => {
     setIsLoggedIn(false);
+    setCurrentUser("");
     setFile(null); setQuery(""); setAnswer(""); setImage(null); setHistory([]);
   };
 
@@ -44,22 +61,41 @@ function App() {
 
   const handleAnalyze = async () => {
     if (!file || !query) return alert("Please upload a file and ask a question! 📂");
+    
     const formData = new FormData();
     formData.append("file", file);
     formData.append("query", query);
+    
     setLoading(true); setAnswer(""); setImage(null);
 
     try {
-      const res = await axios.post("https://datamind-backend-sm6k.onrender.com/analyze", formData);
+      // 1. Get Answer from AI
+      const res = await axios.post(`${API_URL}/analyze`, formData);
       setAnswer(res.data.answer);
       if (res.data.image) setImage(res.data.image);
+
+      // 2. Save to History (Backend)
+      const newEntry = {
+        username: currentUser,
+        filename: file.name,
+        query: query,
+        answer: res.data.answer,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      await axios.post(`${API_URL}/save_history`, newEntry);
+
+      // 3. Update Local State
+      setHistory(prev => [newEntry, ...prev]);
+
     } catch (err) {
       setAnswer("⚠️ Connection Error: Unable to reach the AI backend.");
     }
     setLoading(false);
   };
 
-  if (!isLoggedIn) return <Login onLogin={setIsLoggedIn} />;
+  // Pass handleLoginSuccess instead of just setIsLoggedIn
+  if (!isLoggedIn) return <Login onLogin={handleLoginSuccess} />;
 
   return (
     <div className="flex h-screen w-full bg-slate-50 font-sans overflow-hidden">
@@ -71,7 +107,9 @@ function App() {
             <span className="text-3xl animate-pulse-slow">🤖</span>
             <h1 className="text-2xl font-extrabold tracking-tight">DataMind AI</h1>
           </div>
-          <p className="text-indigo-200 text-xs uppercase tracking-wider font-semibold">Enterprise Dashboard</p>
+          <p className="text-indigo-200 text-xs uppercase tracking-wider font-semibold">
+            User: {currentUser}
+          </p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
@@ -81,7 +119,7 @@ function App() {
               <input type="file" accept=".csv" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
               <div className="text-center">
                 <span className="text-2xl block mb-1">{file ? "✅" : "📂"}</span>
-                <span className="text-xs font-bold text-indigo-100 group-hover:text-white transition">{file ? "File Selected" : "Click to Upload CSV"}</span>
+                <span className="text-xs font-bold text-indigo-100 group-hover:text-white transition">{file ? file.name : "Click to Upload CSV"}</span>
               </div>
             </div>
           </div>
@@ -89,16 +127,16 @@ function App() {
           {history.length > 0 && (
             <div>
               <label className="text-xs font-bold text-indigo-300 uppercase tracking-wide mb-3 block flex justify-between items-center">
-                <span>Recent Datasets</span>
+                <span>History</span>
                 <span className="bg-indigo-700 text-[10px] px-2 py-0.5 rounded-full text-white">{history.length}</span>
               </label>
               <div className="space-y-2">
                 {history.map((item, index) => (
-                  <button key={index} onClick={() => selectFromHistory(item)} className={`w-full text-left p-3 rounded-lg flex items-center gap-3 transition-all group ${file && file.name === item.name ? "bg-gradient-to-r from-indigo-600 to-purple-600 shadow-lg border border-indigo-400" : "bg-white/5 hover:bg-white/10 border border-transparent"}`}>
-                    <span className="text-lg">📊</span>
+                  <button key={index} onClick={() => selectFromHistory(item)} className="w-full text-left p-3 rounded-lg flex items-center gap-3 transition-all group bg-white/5 hover:bg-white/10 border border-transparent hover:border-indigo-400/30">
+                    <span className="text-lg">💬</span>
                     <div className="overflow-hidden">
-                      <p className={`text-sm font-bold truncate ${file && file.name === item.name ? "text-white" : "text-indigo-100 group-hover:text-white"}`}>{item.name}</p>
-                      <p className="text-[10px] text-indigo-400">Uploaded at {item.time}</p>
+                      <p className="text-sm font-bold truncate text-indigo-100 group-hover:text-white">{item.query}</p>
+                      <p className="text-[10px] text-indigo-400">{item.filename} • {item.time}</p>
                     </div>
                   </button>
                 ))}
@@ -147,16 +185,12 @@ function App() {
                 <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white text-lg shadow-md shrink-0">✨</div>
                 <div className="flex-1 space-y-4">
                   
-                  {/* 👇 CHANGED ORDER: Image First, Then Text 👇 */}
-                  
-                  {/* 1. Chart (Top) */}
                   {image && (
                     <div className="p-2 bg-white rounded-2xl shadow-lg border border-slate-100 inline-block mb-4">
                       <img src={`data:image/png;base64,${image}`} alt="Data Visualization" className="rounded-xl max-h-[450px] w-auto" />
                     </div>
                   )}
 
-                  {/* 2. Text Explanation (Bottom) */}
                   <div className="bg-white p-8 rounded-2xl rounded-tl-none shadow-xl border border-slate-100 text-slate-700 prose prose-indigo max-w-none leading-relaxed">
                     <ReactMarkdown>{answer}</ReactMarkdown>
                   </div>
