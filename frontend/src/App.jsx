@@ -13,19 +13,19 @@ function App() {
   const [image, setImage] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // 👇 API URL Helper (Use Render URL if deploying, else localhost)
-  const API_URL = "http://127.0.0.1:8000"; // Or your Render URL
+  // 👇 RENDER LIVE LINK use pannunga! (Local la test panna localhost use pannalam)
+  const API_URL = "https://datamind-backend.onrender.com"; 
 
   // 1. Handle Login & Fetch History
   const handleLoginSuccess = async (status, username) => {
     setIsLoggedIn(status);
     setCurrentUser(username);
 
-    // Fetch Old History
+    // Fetch Old History from Backend
     try {
       const res = await axios.post(`${API_URL}/get_history`, { 
         username: username,
-        password: "" // Not needed for history, just satisfying UserData schema
+        password: "" // Not needed for history, just schema match
       });
       if (res.data.history) {
         setHistory(res.data.history);
@@ -43,10 +43,9 @@ function App() {
   };
 
   const selectFromHistory = (historyItem) => {
-    // When clicking history, we just show the old Q&A
     setQuery(historyItem.query);
     setAnswer(historyItem.answer);
-    setImage(null); // Images aren't saved in simple history for now
+    setImage(null);
   };
 
   const handleLogout = () => {
