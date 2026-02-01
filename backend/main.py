@@ -11,7 +11,6 @@ import json
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -25,10 +24,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- DATABASE SETUP ---
+# --- DATABASE FILES ---
 USERS_FILE = "users.json"
-HISTORY_FILE = "history.json"  # <--- New History File 📂
+HISTORY_FILE = "history.json"
+FILES_RECORD = "user_files.json" # <--- New File for File Names 📂
 
+# --- DATA MODELS ---
 class UserData(BaseModel):
     username: str
     password: str
@@ -40,68 +41,78 @@ class HistoryData(BaseModel):
     answer: str
     time: str
 
-# --- USERS LOGIC ---
-def load_users():
-    if not os.path.exists(USERS_FILE): return {}
+class FileRecord(BaseModel):
+    username: str
+    filename: str
+
+# --- HELPER FUNCTIONS ---
+def load_json(filename):
+    if not os.path.exists(filename): return {}
     try:
-        with open(USERS_FILE, "r") as f: return json.load(f)
+        with open(filename, "r") as f: return json.load(f)
     except: return {}
 
-def save_users(users):
-    with open(USERS_FILE, "w") as f: json.dump(users, f)
+def save_json(filename, data):
+    with open(filename, "w") as f: json.dump(data, f)
 
-# --- HISTORY LOGIC (NEW) ---
-def load_history():
-    if not os.path.exists(HISTORY_FILE): return {}
-    try:
-        with open(HISTORY_FILE, "r") as f: return json.load(f)
-    except: return {}
-
-def save_history_file(history):
-    with open(HISTORY_FILE, "w") as f: json.dump(history, f)
-
+# --- AUTH ENDPOINTS ---
 @app.post("/register")
 async def register(user: UserData):
-    users = load_users()
+    users = load_json(USERS_FILE)
     if user.username in users:
         return {"status": "error", "message": "Username already taken! 🚫"}
     users[user.username] = user.password
-    save_users(users)
+    save_json(USERS_FILE, users)
     return {"status": "success", "message": "Registration Successful! ✅"}
 
 @app.post("/login")
 async def login(user: UserData):
-    users = load_users()
+    users = load_json(USERS_FILE)
     if user.username in users and users[user.username] == user.password:
         return {"status": "success", "message": "Login Success!"}
     return {"status": "error", "message": "Invalid Username or Password! ❌"}
 
-# --- NEW ENDPOINTS FOR HISTORY ---
+# --- HISTORY ENDPOINTS ---
 @app.post("/save_history")
 async def save_history_endpoint(data: HistoryData):
-    history = load_history()
+    history = load_json(HISTORY_FILE)
     if data.username not in history:
         history[data.username] = []
     
-    # Add new entry to the beginning
     history[data.username].insert(0, {
         "filename": data.filename,
         "query": data.query,
         "answer": data.answer,
         "time": data.time
     })
-    
-    save_history_file(history)
+    save_json(HISTORY_FILE, history)
     return {"status": "success"}
 
 @app.post("/get_history")
 async def get_history_endpoint(user: UserData):
-    # We reuse UserData just to get the username
-    history = load_history()
-    user_history = history.get(user.username, [])
-    return {"history": user_history}
+    history = load_json(HISTORY_FILE)
+    return {"history": history.get(user.username, [])}
 
-# --- AI SETUP ---
+# --- NEW: FILE RECORD ENDPOINTS 📂 ---
+@app.post("/add_file_record")
+async def add_file_record(data: FileRecord):
+    records = load_json(FILES_RECORD)
+    if data.username not in records:
+        records[data.username] = []
+    
+    # Avoid duplicates
+    if data.filename not in records[data.username]:
+        records[data.username].insert(0, data.filename) # Add to top
+        save_json(FILES_RECORD, records)
+    
+    return {"status": "success"}
+
+@app.post("/get_user_files")
+async def get_user_files(user: UserData):
+    records = load_json(FILES_RECORD)
+    return {"files": records.get(user.username, [])}
+
+# --- AI ANALYZE ENDPOINT ---
 os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
 
 llm = ChatGroq(
@@ -125,18 +136,12 @@ async def analyze_data(file: UploadFile = File(...), query: str = Form(...)):
         1. Create the chart using 'seaborn' or 'matplotlib'.
         2. SAVE plot as 'plot.png'.
         3. DO NOT use plt.show().
-        4. AFTER saving the plot, provide a clear and detailed textual explanation of what the chart shows. 
-           - Mention key trends, highest/lowest values, and insights.
-           - Do NOT say "Chart generated successfully", instead describe the data.
+        4. AFTER saving the plot, provide a clear and detailed textual explanation.
         """
 
         agent = create_pandas_dataframe_agent(
-            llm, 
-            df, 
-            verbose=True, 
-            allow_dangerous_code=True,
-            prefix=prefix_instruction,
-            max_iterations=3,
+            llm, df, verbose=True, allow_dangerous_code=True,
+            prefix=prefix_instruction, max_iterations=3,
             agent_executor_kwargs={"handle_parsing_errors": True} 
         )
 
@@ -152,9 +157,4 @@ async def analyze_data(file: UploadFile = File(...), query: str = Form(...)):
 
     except Exception as e:
         print(f"❌ Error: {e}") 
-        if os.path.exists("plot.png"):
-             with open("plot.png", "rb") as img_file:
-                image_base64 = base64.b64encode(img_file.read()).decode('utf-8')
-                return {"answer": "Here is the chart based on your data.", "image": image_base64}
-        
         return {"answer": f"Error: {str(e)}", "image": None}
